@@ -1,0 +1,410 @@
+---
+title: "CS130 Regression"
+output: github_document
+---
+
+```{r}
+#install.packages("readxl")
+#install.packages("ggplot2")
+#install.packages("glmnet")
+#install.packages("caTools")
+#install.packages("corrplot")
+```
+
+```{r}
+library("readxl")
+neets <- read_excel("regression_1.xlsx")
+head(neets)
+colnames(neets)
+nrow(neets)
+```
+
+```{r}
+# Data cleaning, removing NA data from level of education (6x) Med cohort
+neets <- neets[!is.na(neets$`Level of Education`),]
+nrow(neets)
+neets <- neets[neets$Cohort != "Med", ]
+nrow(neets)
+```
+
+```{r}
+# Data encoding
+neets$Cohort <- ifelse(neets$Cohort == "SW", 1, 0)
+neets[,"Level of Education"] <- ifelse(neets[,"Level of Education"] == "postsecondary", 1, 0)
+neets["Follow up"] <- ifelse(neets["Follow up"] == "follow up", 1, 0)
+neets$Sex <- ifelse(neets$Sex == "F", 1, 0)
+
+head(neets)
+nrow(neets)
+```
+
+```{r}
+# Logistic Regression
+logreg_model <- glm(`Follow up` ~ Sex + Cohort + `Level of Education`, data=neets, family='binomial')
+summary(logreg_model)
+nrow(neets)
+```
+
+```{r}
+#install.packages("ggplot2")
+#install.packages("glmnet")
+# Load necessary libraries
+library(dplyr)
+library(ggplot2)
+library(glmnet)
+
+# Fit the logistic regression model
+model <- logreg_model
+
+predicted_probabilities <- predict(logreg_model, type = "response")
+
+control_probabilities <- predicted_probabilities[neets$Cohort == 0]
+control_probabilities
+sw_probabilities <- predicted_probabilities[neets$Cohort == 1]
+```
+
+```{r}
+
+neets$predicted_probabilities <- predict(logreg_model, newdata=neets,type = "response",interval='prediction')
+
+#Treatment
+
+  #Male
+neets_SW_ps_m <- neets[neets$Cohort == 1 & neets$`Level of Education` == 1 & neets$Sex==0,]
+neets_SW_nps_m <- neets[neets$Cohort == 1 & neets$`Level of Education` == 0 & neets$Sex==0,]
+
+  #Female
+neets_SW_ps_f <- neets[neets$Cohort == 1 & neets$`Level of Education` == 1 & neets$Sex==1,]
+neets_SW_nps_f <- neets[neets$Cohort == 1 & neets$`Level of Education` == 0 & neets$Sex==1,]
+
+#Control
+
+  #Male
+neets_Control_ps_m <- neets[neets$Cohort == 0 & neets$`Level of Education` == 1 & neets$Sex==0,]
+neets_Control_nps_m <- neets[neets$Cohort == 0 & neets$`Level of Education` == 0 & neets$Sex==0,]
+
+  #Female
+neets_Control_ps_f <- neets[neets$Cohort == 0 & neets$`Level of Education` == 1 & neets$Sex==1,]
+neets_Control_nps_f <- neets[neets$Cohort == 0 & neets$`Level of Education` == 0 & neets$Sex==1,]
+
+neets
+
+```
+
+```{r}
+
+
+boxplot(predicted_probabilities ~ Cohort  + `Level of Education` + Sex,data=neets)
+
+TE_nps_m <- neets_Control_nps_m$predicted_probabilities - neets_SW_nps_m$predicted_probabilities
+TE_ps_m <- neets_Control_ps_m$predicted_probabilities - neets_SW_ps_m$predicted_probabilities
+TE_nps_f <- neets_Control_nps_f$predicted_probabilities - neets_SW_nps_f$predicted_probabilities
+TE_ps_f <- neets_Control_ps_f$predicted_probabilities - neets_SW_ps_f$predicted_probabilities
+
+library("ggplot2") 
+DF <- data.frame(Groups = c("Men without \nPost-Secondary", "Men with Post-Secondary", "Women without \nPost-Secondary", "Women with Post-Secondary"),     
+                   Treatment_Effects = c(TE_nps_m[1], TE_ps_m[1], TE_nps_f[1], TE_ps_f[1])*-1) 
+  
+# Create a BarPlot 
+ggplot(DF, aes(Groups, Treatment_Effects))+                
+  geom_bar(stat = "identity", fill = "darkslategrey", 
+           color = "NA", width = 0.4)+theme_minimal()+ 
+  coord_cartesian(ylim = c(0, max(DF$Treatment_Effects)+0.005))+
+  labs(
+    x = "Groups",y = "Treatment Effects")
+
+```
+
+```{r}
+library(corrplot)
+library(medicaldata)
+intubation_data <- medicaldata::laryngoscope
+
+intubation_subset <- subset(intubation_data, select = -c(attempt2_time, attempt2_assigned_method, attempt2_S_F, attempt3_time, attempt3_assigned_method, attempt3_S_F,sore_throat,bleeding))
+intubation_subset <- intubation_subset[!is.na(intubation_subset$BMI), ]
+intubation_subset <- intubation_subset[!is.na(intubation_subset$Mallampati), ]
+
+colnames(intubation_subset)[colnames(intubation_subset) == "Randomization"] <- "Laryngoscope"
+
+loess_reg <- loess(ease ~ Mallampati + Laryngoscope + age + BMI, data = training_data, span = 1)
+
+
+corrplot(cor(intubation_subset))
+summary(loess_reg)
+```
+
+```{r}
+spans <- seq(0.1, 2, by = 0.1)
+mse_values <- numeric(length(spans))
+
+# Loop through different spans and calculate LOOCV MSE for each
+for (i in 1:length(spans)) {
+  current_span <- spans[i]
+  loocv_errors <- numeric(length(intubation_subset$ease))
+  
+  for (j in 1:length(loocv_errors)) {
+    training_data <- intubation_subset[-j, ]
+    loess_model <- loess(ease ~ Mallampati + Laryngoscope + age + BMI, data = training_data, span = current_span)
+    loocv_errors[j] <- (intubation_subset$ease[j] - predict(loess_model, newdata = intubation_subset[j, ]))^2
+  }
+  
+  mse_values[i] <- mean(na.omit(loocv_errors))
+}
+
+mse_data <- data.frame(Span = spans, MSE = mse_values)
+print(mse_data)
+
+# Plot MSEs vs. Spans
+library(ggplot2)
+ggplot(mse_data, aes(x = Span, y = MSE)) +
+  geom_line() +
+  labs(title = "Model Selection: LOOCV MSE vs. Span",
+       x = "Span",
+       y = "Mean Squared Error (MSE)")+
+  scale_y_log10() 
+
+```
+
+```{r}
+# Load the necessary libraries
+library(ggplot2)
+
+loocv_errors_model1 <- numeric(length(intubation_subset$ease))
+loocv_errors_model2 <- numeric(length(intubation_subset$ease))
+loocv_errors_model3 <- numeric(length(intubation_subset$ease))
+
+# Define the three candidate linear models
+model1 <- lm(ease ~ Laryngoscope + Mallampati, data = intubation_subset)
+model2 <- lm(ease ~ Mallampati + Laryngoscope + age + BMI, data = intubation_subset)
+model3 <- lm(ease ~ ., data = intubation_subset)
+
+# Perform LOOCV for each model
+for (i in 1:length(loocv_errors_model1)) {
+  # Define the data point to leave out
+  test_data <- intubation_subset[i, ]
+  
+  # Model 1 LOOCV
+  model1_data <- intubation_subset[-i, ]
+  loocv_errors_model1[i] <- (test_data$ease - predict(model1, newdata = model1_data))^2
+  
+  # Model 2 LOOCV
+  model2_data <- intubation_subset[-i, ]
+  loocv_errors_model2[i] <- (test_data$ease - predict(model2, newdata = model2_data))^2
+  
+  # Model 3 LOOCV
+  model3_data <- intubation_subset[-i, ]
+  loocv_errors_model3[i] <- (test_data$ease - predict(model3, newdata = model3_data))^2
+}
+
+# Calculate the LOOCV test-set errors for all three models
+loocv_error_model1 <- mean(loocv_errors_model1)
+loocv_error_model2 <- mean(loocv_errors_model2)
+loocv_error_model3 <- mean(loocv_errors_model3)
+loocv_data <- data.frame(errors = c(loocv_errors_model1,loocv_errors_model2,loocv_errors_model3), models = c('Model 1','Model 2','Model 3'))
+
+  
+cat("Estimated Test-Set Error (LOOCV) for Model 1:", loocv_error_model1, "\n")
+cat("Estimated Test-Set Error (LOOCV) for Model 2:", loocv_error_model2, "\n")
+cat("Estimated Test-Set Error (LOOCV) for Model 3:", loocv_error_model3, "\n")
+
+ggplot(loocv_data, aes(x = models, y = errors)) +
+  geom_boxplot() +
+  labs(
+    title = "LOOCV Errors for Linear Regression Models",
+    x = "Model",
+    y = "LOOCV Error"
+  )+ stat_summary(fun.y=mean, geom="point", shape=20, size=4,color='red')
+```
+
+```{r}
+# Load the necessary libraries
+library(ggplot2)
+
+# Make predictions and obtain prediction intervals and confidence intervals for model1
+
+model1 <- lm(ease ~ Laryngoscope + Mallampati, data = intubation_subset)
+model2 <- lm(ease ~ Mallampati + Laryngoscope + age + BMI, data = intubation_subset)
+model3 <- lm(ease ~ ., data = intubation_subset)
+predictions_model1c <- predict(model1, interval = "confidence")
+predictions_model1p <- predict(model1, interval = "prediction")
+
+predictions_model2c <- predict(model2, interval = "confidence")
+predictions_model2p <- predict(model2, interval = "prediction")
+
+predictions_model3c <- predict(model3, interval = "confidence")
+predictions_model3p <- predict(model3, interval = "prediction")
+
+# Create a data frame with the predictions, prediction intervals, and confidence intervals
+prediction_data1 <- data.frame(
+  Model = 'Model 1',
+  Actual = intubation_subset$ease,
+  Predicted = predictions_model1c[, 1],  
+  Lower_Confidence = predictions_model1c[, 2],
+  Upper_Confidence = predictions_model1c[, 3],
+  Lower_Predicted = predictions_model1p[,2],
+  Upper_Predicted = predictions_model1p[,3]
+)
+
+prediction_data2 <- data.frame(
+  Model = 'Model 2',
+  Actual = intubation_subset$ease,
+  Predicted = predictions_model2c[, 1],  
+  Lower_Confidence = predictions_model2c[, 2],  
+  Upper_Confidence = predictions_model2c[, 3],
+  Lower_Predicted = predictions_model2p[,2],
+  Upper_Predicted = predictions_model2p[,3]
+)
+
+prediction_data3 <- data.frame(
+  Model = 'Model 3',
+  Actual = intubation_subset$ease,
+  Predicted = predictions_model3c[, 1],  
+  Lower_Confidence = predictions_model3c[, 2],  
+  Upper_Confidence = predictions_model3c[, 3],
+  Lower_Predicted = predictions_model3p[,2],
+  Upper_Predicted = predictions_model3p[,3]
+)
+
+#Model 1
+ggplot(prediction_data1, aes(x = Predicted, fill=Model)) +
+  geom_histogram(binwidth = NULL, bins=10, color = "black",position = "identity", alpha = 0.6) +
+  labs(
+    title = "Histogram with 95% Confidence Intervals",
+    x = "Predicted Ease of Intubation",
+    y = "Frequency"
+  )+
+  scale_fill_manual(values = c("Model 1" = "red", "Model 2" = "green","Model 3" = 'purple'))+
+  geom_ribbon(aes(ymin = 0, ymax = Inf, 
+                  xmin = Lower_Confidence, 
+                  xmax = Upper_Confidence), 
+              fill = "orange", alpha = 0.5)
+
+#Model 2
+ggplot(prediction_data2, aes(x = Predicted, fill=Model)) +
+  geom_histogram(binwidth = NULL, bins=10, color = "black",position = "identity", alpha = 0.6) +
+  labs(
+    title = "Histogram with 95% Confidence Intervals",
+    x = "Predicted Ease of Intubation",
+    y = "Frequency"
+  )+
+  scale_fill_manual(values = c("Model 1" = "red", "Model 2" = "green","Model 3" = 'purple'))+
+  geom_ribbon(aes(ymin = 0, ymax = Inf, 
+                  xmin = Lower_Confidence, 
+                  xmax = Upper_Confidence), 
+              fill = "blue", alpha = 0.5)
+
+#Model 3
+ggplot(prediction_data3, aes(x = Predicted, fill=Model)) +
+  geom_histogram(binwidth = NULL, bins=10, color = "black",position = "identity", alpha = 0.6) +
+  labs(
+    title = "Histogram with 95% Confidence Intervals",
+    x = "Predicted Ease of Intubation",
+    y = "Frequency"
+  )+
+  scale_fill_manual(values = c("Model 1" = "red", "Model 2" = "green","Model 3" = 'purple'))+
+  geom_ribbon(aes(ymin = 0, ymax = Inf, 
+                  xmin = Lower_Confidence, 
+                  xmax = Upper_Confidence), 
+              fill = "yellow", alpha = 0.5)
+
+summary(prediction_data3['Predicted'])
+
+
+```
+
+```{r}
+library(ggplot2)
+
+
+ggplot(prediction_data1, aes(x = Actual, y = Predicted)) +
+  geom_point(aes(color = Model), size = 3,alpha=0.5) +
+  geom_errorbar(aes(ymin = Lower_Predicted, ymax = Upper_Predicted, color = Model), width = 0.1,alpha=0.5) +
+  scale_color_manual(values = c("Model 1" = "red", "Model 2" = "green", "Model 3" = "purple")) +
+  labs(
+    title = "Scatter Plot with Prediction Intervals",
+    x = "Actual Ease of Intubation",
+    y = "Predicted Ease of Intubation"
+  )
+
+ggplot(prediction_data2, aes(x = Actual, y = Predicted)) +
+  geom_point(aes(color = Model), size = 3,alpha=0.5) +
+  geom_errorbar(aes(ymin = Lower_Predicted, ymax = Upper_Predicted, color = Model), width = 0.1,alpha=0.5) +
+  scale_color_manual(values = c("Model 1" = "red", "Model 2" = "green", "Model 3" = "purple")) +
+  labs(
+    title = "Scatter Plot with Prediction Intervals",
+    x = "Actual Ease of Intubation",
+    y = "Predicted Ease of Intubation"
+  )
+
+ggplot(prediction_data3, aes(x = Actual, y = Predicted)) +
+  geom_point(aes(color = Model), size = 3,alpha=0.5) +
+  geom_errorbar(aes(ymin = Lower_Predicted, ymax = Upper_Predicted, color = Model), width = 0.1,alpha=0.5) +
+  scale_color_manual(values = c("Model 1" = "red", "Model 2" = "green", "Model 3" = "purple")) +
+  labs(
+    title = "Scatter Plot with Prediction Intervals",
+    x = "Actual Ease of Intubation",
+    y = "Predicted Ease of Intubation"
+  )
+
+summary(model2)
+```
+
+```{r}
+#Q3
+
+library(medicaldata)
+library(corrplot)
+
+blood <- medicaldata::blood_storage
+blood_subset <- blood[!is.na(blood$TimeToRecurrence), ]
+blood_subset <- blood_subset[!is.na(blood_subset$T.Stage), ]
+
+#install.packages("caTools")
+library(caTools)
+set.seed(123)
+split <- sample.split(blood_subset$TimeToRecurrence, SplitRatio = 0.8)
+
+train_data <- blood_subset[split, ]
+test_data <- blood_subset[!split, ]
+
+train_data
+test_data
+corrplot(cor(blood_subset))
+
+```
+
+```{r}
+blood_linear_model <- lm(TimeToRecurrence ~ RBC.Age.Group + AA + T.Stage + TVol + TVol:FamHx,data=train_data)
+
+summary(blood_linear_model)
+```
+
+```{r}
+test_predictions <- predict(blood_linear_model, newdata = test_data)
+
+mse <- mean((test_data$TimeToRecurrence - test_predictions)^2)
+
+mse
+
+# Scatter Plot of Actual vs. Predicted Values
+plot(test_data$TimeToRecurrence, test_predictions, 
+     main = "Actual vs. Predicted Values",
+     xlab = "Actual TimeToRecurrence",
+     ylab = "Predicted TimeToRecurrence")
+
+# Add a 45-degree reference line
+abline(0, 1, col = "red")
+
+# Residual Plot
+residuals <- test_data$TimeToRecurrence - test_predictions
+plot(test_predictions, residuals, 
+     main = "Residual Plot",
+     xlab = "Predicted TimeToRecurrence",
+     ylab = "Residuals")
+
+abline(h = 0, col = "red")
+
+```
+
+```{}
+```
