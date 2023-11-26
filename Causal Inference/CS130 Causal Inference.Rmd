@@ -1,0 +1,605 @@
+---
+title: "Causal Inference Assignment"
+output: html_notebook
+---
+
+```{r}
+# Question 1
+
+# Importing the data
+library(readr)
+d=read_csv("https://bit.ly/2SKjUn2")
+
+# Get treatment vector as a dummy
+treatment=numeric(length(d$treat))
+treatment[d$treat=="pub.pol"]=1
+
+
+mean(d$vote_pop[treatment == 1]) - mean(d$vote_pop[treatment == 0])
+View(d)
+```
+
+```{r}
+
+# Create 12870 permutations of assignment
+vec <- c(rep(0,8),rep(1,8))
+tbl_v <- table(vec)
+library(RcppAlgos)
+treat_permutations <- permuteGeneral(names(tbl_v), 16, freqs = tbl_v)
+as.numeric(treat_permutations[1,])
+dim(treat_permutations)
+
+```
+
+```{r}
+# Fisher Exact Test (a)
+
+library(progress)
+# Function to calculate treatment effect
+calculate_treatment_effect <- function(df) {
+  mean(df$vote_pop[df$treat == 1]) - mean(df$vote_pop[df$treat == 0])
+}
+
+# Initialize a dataframe
+results_df <- data.frame(permutation = integer(12870), treatment_effect = numeric(12870))
+
+pb <- progress_bar$new(total = dim(treat_permutations)[1], clear = FALSE, format = "  :current/:total [:bar] :percent")
+
+# Iterate over each permutation and calculate treatment effect
+for (i in 1:nrow(treat_permutations)) {
+  
+  pb$tick()
+  
+  d$treat <- as.numeric(treat_permutations[i,])
+  treatment_effect <- calculate_treatment_effect(d)
+
+  # Store permutation and corresponding treatment effect
+  results_df[i, ] <- list(permutation = paste(as.numeric(treat_permutations[i, ]), collapse = ""), treatment_effect = treatment_effect)
+}
+
+# Print the first few rows of the results dataframe
+head(results_df)
+```
+
+```{r}
+# Plotting null randomization distribution
+
+library(ggplot2)
+
+ggplot(results_df, aes(x = treatment_effect)) +
+  geom_histogram(binwidth = 0.020, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of 12,870 Test Statistics", x = "Difference of Means", y = "Frequency") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  geom_vline(xintercept = -0.1575,color='red') +
+  annotate("text", x = -0.215, y = 750, label = "Observed Test Statistic",size=2.65) 
+```
+
+```{r}
+# Getting p-value of observed test statistic
+
+extreme_count <- sum(results_df$treatment_effect <= -0.1575)
+p_value = extreme_count/length(results_df$treatment_effect)
+p_value
+
+```
+
+```{r}
+# Calculating treatment effects by block to get observed test statistic
+
+library(readr)
+d=read_csv("https://bit.ly/2SKjUn2")
+treatment=numeric(length(d$treat))
+treatment[d$treat=="pub.pol"]=1
+by_block <- d %>% group_by(block)
+treatment_effects <- (by_block %>% summarise(treatment = diff(vote_pop)))$treatment
+treatment_effects
+mean(treatment_effects)
+
+# Extra credit
+
+library(gtools)
+library(progress)
+library(readr)
+d=read_csv("https://bit.ly/2SKjUn2")
+treatment=numeric(length(d$treat))
+treatment[d$treat=="pub.pol"]=1
+
+# Function to replace 'A' with (0,1) and 'B' with (1,0)
+replace_pairs <- function(permutation) {
+  sapply(permutation, function(x) {
+    if (x == 'A') {
+      return(c(0, 1))
+    } else {
+      return(c(1, 0))
+    }
+  })
+}
+
+# Generate all permutations
+perm_strings <- permutations(n = 2, r = 8, v = c('A', 'B'), repeats.allowed = TRUE)
+
+# Apply the replacement function to each permutation, transpose to have rows
+# as the treatment/control permutation
+block_permutations <- t(apply(perm_strings, 1, replace_pairs))
+
+library(progress)
+calculate_treatment_effect <- function(df) {
+  mean(df$vote_pop[df$treat == 1]) - mean(df$vote_pop[df$treat == 0])}
+block_results_df <- data.frame(permutation = integer(256), treatment_effect = numeric(256))
+
+pb <- progress_bar$new(total = dim(block_permutations)[1], clear = FALSE, format = "  :current/:total [:bar] :percent")
+
+for (i in 1:nrow(block_permutations)) {
+  
+  pb$tick()
+  
+  d$treat <- block_permutations[i,]
+  treatment_effect <- calculate_treatment_effect(d)
+
+  block_results_df[i, ] <- list(permutation = paste(block_permutations[i,], collapse = ""), treatment_effect = treatment_effect)
+}
+
+head(block_results_df)
+
+library(ggplot2)
+
+ggplot(block_results_df, aes(x = treatment_effect)) +
+  geom_histogram(bins = 27, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of 256 Test Statistics", x = "Difference of Means", y = "Frequency") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  geom_vline(xintercept = -0.1575,color='red') +
+  annotate("text", x = -0.12, y = 30, label = "Observed Test Statistic",size=2.65) 
+
+
+min(block_results_df$treatment_effect)
+block_p_value = 1/256
+
+# Getting modes of null randomization distribution
+
+length(unique(block_results_df$treatment_effect))
+Modes <- function(x) {
+  ux <- unique(x)
+  tab <- tabulate(match(x, ux))
+  ux[tab == max(tab)]
+}
+Modes(block_results_df$treatment_effect)
+
+```
+
+```{r}
+# Question 2
+
+library(readr)
+library(Matching)
+library(dplyr)
+
+gb <- read_csv("C:/Users/raphael khalid/Desktop/CS130 Causal Inference/greenbuildings.csv")
+# Method 1: Encoding class to numeric
+gb <- gb %>%
+  mutate(class = case_when(
+    class == "A" ~ 1,
+    class == "B" ~ 2,
+    class == "C" ~ 3))
+gb
+```
+
+```{r}
+
+attach(gb)
+Tr <- green_rating
+X <- cbind(size, stories, age, class)
+Y <- leasing_rate
+detach(gb)
+
+# Perform genetic matching
+gen1 <- GenMatch(Tr = Tr, X = X, wait.generations=5, max.generations = 20)
+mgen1 <- Match(Tr=Tr, X=X, Weight.matrix=gen1)
+MatchBalance(Tr~size + stories + age + class, data=gb, match.out=mgen1, nboots=1000)  
+
+```
+
+```{r}
+mgenout_main <- Match(Y=Y, Tr=Tr, X=X, Weight.matrix=gen1)
+summary(mgenout_main)
+```
+
+```{r}
+# Method 2: Using class_a and class_b
+Tr <- gb$green_rating
+X <- cbind(gb$size, gb$stories, gb$age, gb$class_a, gb$class_b)
+Y <- gb$leasing_rate
+# Perform genetic matching
+gen2 <- GenMatch(Tr = Tr, X = X, wait.generations=5, max.generations = 20)
+mgen2 <- Match(Tr=Tr, X=X, Weight.matrix=gen2)
+MatchBalance(Tr~size + stories + age + class_a + class_b, data=gb, match.out=mgen2, nboots=1000)
+```
+
+```{r}
+# Visual Inspection of Data Distribution
+
+library(ggplot2)
+# Create a histogram of treatment effects
+ggplot(gb, aes(x = size)) +
+  geom_histogram(bins = 30, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of Size", x = "Size", y = "Frequency") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplot(gb, aes(x = stories)) +
+  geom_histogram(bins = 30, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of Stories", x = "Stories", y = "Frequency") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplot(gb, aes(x = age)) +
+  geom_histogram(bins = 30, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of Age", x = "Age", y = "Frequency") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplot(gb, aes(x = class)) +
+  geom_histogram(bins = 30, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of Class", x = "Class", y = "Frequency") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+sd(gb$size)
+```
+
+```{r}
+# Genetic matching with Caliper
+
+attach(gb)
+Tr <- green_rating
+X <- cbind(size, stories, age, class)
+Y <- leasing_rate
+detach(gb)
+caliper <- c(300/sd(gb$size),
+             3/sd(gb$stories),
+             3/sd(gb$age),
+             1/sd(gb$class))
+# Perform genetic matching
+gen3 <- GenMatch(Tr = Tr, X = X, wait.generations=5, max.generations = 20, caliper= caliper)
+mgen3 <- Match(Tr=Tr, X=X, Weight.matrix=gen3)
+MatchBalance(Tr~size + stories + age + class, data=gb, match.out=mgen3, nboots=1000)
+```
+
+```{r}
+mgenout_caliper <- Match(Y=Y, Tr=Tr, X=X, Weight.matrix=gen3)
+summary(mgenout_caliper)
+```
+
+```{r}
+# Quantile effect with Matched Data
+
+mdt <- gb[mgen1$index.treated, ] 
+mdc <- gb[mgen1$index.control, ] 
+
+MQ10TE <- quantile(mdt$leasing_rate, probs = 0.1) - quantile(mdc$leasing_rate, probs = 0.1)
+cat("10% Quantile Treatment Effect with Matching:", MQ10TE)
+
+quantile(gb$leasing_rate,probs=0.45)
+```
+
+```{r}
+# Plotting Quantile Treatment Effects
+
+library(ggplot2)
+
+quantile_levels <- seq(0.01, 0.99, by = 0.01)
+quantile_treatment_effects <- sapply(quantile_levels, function(q) {
+  quantile(mdt$leasing_rate, probs = q) - quantile(mdc$leasing_rate, probs = q)
+})
+
+plot_data <- data.frame(Quantile = quantile_levels, TreatmentEffect = quantile_treatment_effects)
+
+ggplot(plot_data, aes(x = Quantile, y = TreatmentEffect)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Quantile Treatment Effect of Green Rating on Leasing Rate",
+       x = "Quantile",
+       y = "Treatment Effect") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+```{r}
+# Sensitivity Analysis using "class" as a benchmark covariate
+
+library(quantreg)
+library(sensemakr)
+
+matched_data <- rbind(mdt, mdc)
+
+# Linear model, removing post-treatment and irrelevant covariates.
+lm <- lm(leasing_rate ~ . -CS_PropertyID - rev_psf - Rent - class_a - class_b, data = matched_data)
+summary(lm)
+
+# Sensitivity Analysis using "class" as the benchmark.
+sensitivity <- sensemakr(model = lm, 
+                  treatment = "green_rating",
+                  benchmark_covariates = "class",
+                  kd = c(1, seq(10, 140, by=1)), #change by=1 to get precise location where 9.11% is surpassed
+                  q = 1,
+                  alpha = 0.05, 
+                  reduce = TRUE)
+
+plot(sensitivity,label.text=FALSE)
+summary(sensitivity)
+ovb_minimal_reporting(sensitivity, format = "latex",verbose=TRUE)
+```
+
+```{r}
+# Question 3
+
+# Creating a synthetic control for Cantabria using base-code
+
+library(Synth)
+data(basque)
+
+# dataprep: prepare data for synth
+dataprep.out <-
+  dataprep(
+  foo = basque
+  ,predictors= c("school.illit",
+                 "school.prim",
+                 "school.med",
+                 "school.high",
+                 "school.post.high"
+                 ,"invest"
+                 )
+   ,predictors.op = c("mean")
+   ,dependent     = c("gdpcap")
+   ,unit.variable = c("regionno")
+   ,time.variable = c("year")
+   ,special.predictors = list(
+    list("gdpcap",1960:1969,c("mean")),                            
+    list("sec.agriculture",seq(1961,1969,2),c("mean")),
+    list("sec.energy",seq(1961,1969,2),c("mean")),
+    list("sec.industry",seq(1961,1969,2),c("mean")),
+    list("sec.construction",seq(1961,1969,2),c("mean")),
+    list("sec.services.venta",seq(1961,1969,2),c("mean")),
+    list("sec.services.nonventa",seq(1961,1969,2),c("mean")),
+    list("popdens",1969,c("mean")))
+    ,treatment.identifier  = 7 #Cantabria
+    ,controls.identifier   = c(2:6, 8:16, 18) #Removing 1 and 17, Espana and Basque
+    ,time.predictors.prior = c(1964:1969)
+    ,time.optimize.ssr     = c(1960:1969)
+    ,unit.names.variable   = c("regionname")
+    ,time.plot            = c(1955:1997) 
+    )
+
+# 1. combine highest and second highest 
+# schooling category and eliminate highest category
+dataprep.out$X1["school.high",] <- 
+ dataprep.out$X1["school.high",] + 
+ dataprep.out$X1["school.post.high",]
+dataprep.out$X1                 <- 
+ as.matrix(dataprep.out$X1[
+  -which(rownames(dataprep.out$X1)=="school.post.high"),])
+dataprep.out$X0["school.high",] <- 
+ dataprep.out$X0["school.high",] + 
+ dataprep.out$X0["school.post.high",]
+dataprep.out$X0                 <- 
+dataprep.out$X0[
+ -which(rownames(dataprep.out$X0)=="school.post.high"),]
+
+# 2. make total and compute shares for the schooling catgeories
+lowest  <- which(rownames(dataprep.out$X0)=="school.illit")
+highest <- which(rownames(dataprep.out$X0)=="school.high")
+
+dataprep.out$X1[lowest:highest,] <- 
+ (100 * dataprep.out$X1[lowest:highest,]) /
+ sum(dataprep.out$X1[lowest:highest,])
+dataprep.out$X0[lowest:highest,] <-  
+ 100 * scale(dataprep.out$X0[lowest:highest,],
+             center=FALSE,
+             scale=colSums(dataprep.out$X0[lowest:highest,])
+                                                 )
+    
+# run synth
+synth.out <- synth(data.prep.obj = dataprep.out)
+
+# Get result tables
+synth.tables <- synth.tab(
+                          dataprep.res = dataprep.out,
+                          synth.res = synth.out
+                          ) 
+
+# results tables:
+print(synth.tables)
+
+# plot results:
+# path
+path.plot(synth.res = synth.out,
+          dataprep.res = dataprep.out,
+          Ylab = c("Real per-capita GDP (1986 USD, thousand)"),
+          Xlab = c("Year"), 
+          Ylim = c(0,13), 
+          Legend = c("Cantabria Region","Synthetic Cantabria Region"),
+          ) 
+
+## gaps
+gaps.plot(synth.res = synth.out,
+          dataprep.res = dataprep.out, 
+          Ylab = c("Gap in Real per-capita GDP (1986 USD, thousand)"),
+          Xlab = c("Year"), 
+          Ylim = c(-1.5,1.5), 
+          )
+
+
+```
+
+```{r}
+# Re Running Synthetic Control with comparison
+
+library(Synth)
+data(basque)
+
+# Full-time Optimized
+dataprep.out <-
+  dataprep(
+  foo = basque
+  ,predictors= c("school.illit",
+                 "school.prim",
+                 "school.med",
+                 "school.high",
+                 "school.post.high"
+                 ,"invest"
+                 )
+   ,predictors.op = c("mean")
+   ,dependent     = c("gdpcap")
+   ,unit.variable = c("regionno")
+   ,time.variable = c("year")
+   ,special.predictors = list(
+    list("gdpcap",1960:1969,c("mean")),                            
+    list("sec.agriculture",seq(1961,1969,2),c("mean")),
+    list("sec.energy",seq(1961,1969,2),c("mean")),
+    list("sec.industry",seq(1961,1969,2),c("mean")),
+    list("sec.construction",seq(1961,1969,2),c("mean")),
+    list("sec.services.venta",seq(1961,1969,2),c("mean")),
+    list("sec.services.nonventa",seq(1961,1969,2),c("mean")),
+    list("popdens",1969,c("mean")))
+    ,treatment.identifier  = 7 #Cantabria
+    ,controls.identifier   = c(2:6, 8:16, 18) #Removing 1, 17
+    ,time.predictors.prior = c(1955:1997) #Full-time optimization
+    ,time.optimize.ssr     = c(1955:1997)
+    ,unit.names.variable   = c("regionname")
+    ,time.plot            = c(1955:1997) 
+    )
+
+# 1. combine highest and second highest 
+# schooling category and eliminate highest category
+dataprep.out$X1["school.high",] <- 
+ dataprep.out$X1["school.high",] + 
+ dataprep.out$X1["school.post.high",]
+dataprep.out$X1                 <- 
+ as.matrix(dataprep.out$X1[
+  -which(rownames(dataprep.out$X1)=="school.post.high"),])
+dataprep.out$X0["school.high",] <- 
+ dataprep.out$X0["school.high",] + 
+ dataprep.out$X0["school.post.high",]
+dataprep.out$X0                 <- 
+dataprep.out$X0[
+ -which(rownames(dataprep.out$X0)=="school.post.high"),]
+
+# 2. make total and compute shares for the schooling catgeories
+lowest  <- which(rownames(dataprep.out$X0)=="school.illit")
+highest <- which(rownames(dataprep.out$X0)=="school.high")
+
+dataprep.out$X1[lowest:highest,] <- 
+ (100 * dataprep.out$X1[lowest:highest,]) /
+ sum(dataprep.out$X1[lowest:highest,])
+dataprep.out$X0[lowest:highest,] <-  
+ 100 * scale(dataprep.out$X0[lowest:highest,],
+             center=FALSE,
+             scale=colSums(dataprep.out$X0[lowest:highest,])
+                                                 )
+# run synth
+synth.out <- synth(data.prep.obj = dataprep.out)
+
+# Get result tables
+synth.tables <- synth.tab(
+                          dataprep.res = dataprep.out,
+                          synth.res = synth.out
+                          ) 
+
+Cantabria_Synthetic_Path_1 <- dataprep.out$Y0plot %*% synth.out$solution.w
+
+# Basque-period Optimized
+dataprep.out <-
+  dataprep(
+  foo = basque
+  ,predictors= c("school.illit",
+                 "school.prim",
+                 "school.med",
+                 "school.high",
+                 "school.post.high"
+                 ,"invest"
+                 )
+   ,predictors.op = c("mean")
+   ,dependent     = c("gdpcap")
+   ,unit.variable = c("regionno")
+   ,time.variable = c("year")
+   ,special.predictors = list(
+    list("gdpcap",1960:1969,c("mean")),                            
+    list("sec.agriculture",seq(1961,1969,2),c("mean")),
+    list("sec.energy",seq(1961,1969,2),c("mean")),
+    list("sec.industry",seq(1961,1969,2),c("mean")),
+    list("sec.construction",seq(1961,1969,2),c("mean")),
+    list("sec.services.venta",seq(1961,1969,2),c("mean")),
+    list("sec.services.nonventa",seq(1961,1969,2),c("mean")),
+    list("popdens",1969,c("mean")))
+    ,treatment.identifier  = 7 #Cantabria
+    ,controls.identifier   = c(2:6, 8:16, 18) #Removing 1, 17
+    ,time.predictors.prior = c(1964:1969) #Basque-time optimization
+    ,time.optimize.ssr     = c(1960:1969)
+    ,unit.names.variable   = c("regionname")
+    ,time.plot            = c(1955:1997) 
+    )
+
+# 1. combine highest and second highest 
+# schooling category and eliminate highest category
+dataprep.out$X1["school.high",] <- 
+ dataprep.out$X1["school.high",] + 
+ dataprep.out$X1["school.post.high",]
+dataprep.out$X1                 <- 
+ as.matrix(dataprep.out$X1[
+  -which(rownames(dataprep.out$X1)=="school.post.high"),])
+dataprep.out$X0["school.high",] <- 
+ dataprep.out$X0["school.high",] + 
+ dataprep.out$X0["school.post.high",]
+dataprep.out$X0                 <- 
+dataprep.out$X0[
+ -which(rownames(dataprep.out$X0)=="school.post.high"),]
+
+# 2. make total and compute shares for the schooling catgeories
+lowest  <- which(rownames(dataprep.out$X0)=="school.illit")
+highest <- which(rownames(dataprep.out$X0)=="school.high")
+
+dataprep.out$X1[lowest:highest,] <- 
+ (100 * dataprep.out$X1[lowest:highest,]) /
+ sum(dataprep.out$X1[lowest:highest,])
+dataprep.out$X0[lowest:highest,] <-  
+ 100 * scale(dataprep.out$X0[lowest:highest,],
+             center=FALSE,
+             scale=colSums(dataprep.out$X0[lowest:highest,])
+                                                 )
+# run synth
+synth.out <- synth(data.prep.obj = dataprep.out)
+
+# Get result tables
+synth.tables <- synth.tab(
+                          dataprep.res = dataprep.out,
+                          synth.res = synth.out
+                          ) 
+
+Cantabria_Synthetic_Path_2 <- dataprep.out$Y0plot %*% synth.out$solution.w
+
+Cantabria_Real_Path <- basque[basque$regionname=='Cantabria',]$gdpcap
+
+# Plotting
+synthetic_df <- data.frame(X = rep(c(1955:1997),3),Y=c(rbind(Cantabria_Synthetic_Path_1,Cantabria_Synthetic_Path_2),Cantabria_Real_Path), method=c(rep("Full-period Optimized", 43),rep('Basque-period Optimized',43),rep('Cantabria Region', 43)))
+library(ggplot2)
+ggplot(data=synthetic_df, aes(x=X, y=Y, group=method)) +
+  geom_line(aes(color=method))+
+  theme(aspect.ratio=1/3)+
+  xlab('Year')+
+  ylab('Real per-capita GDP (1986 USD, thousand)')
+synthetic_df
+
+#Gap plot
+gap_df <- data.frame(X = rep(c(1955:1997),2),
+                     Y = rbind(Cantabria_Synthetic_Path_1 - Cantabria_Real_Path,
+                             Cantabria_Synthetic_Path_2 - Cantabria_Real_Path),
+                     method=c(rep("Full-period Optimized", 43),rep('Basque-period Optimized',43)))
+
+ggplot(data=gap_df, aes(x=X, y=w.weight, group=method)) +
+  geom_line(aes(color=method))+
+  theme(aspect.ratio=1/3)+
+  xlab('Year')+
+  ylab('Gaps in Real per-capita GDP (1986 USD, thousand)')+
+  geom_hline(yintercept=0)+
+  ylim(-1.5,1.5)
+```
