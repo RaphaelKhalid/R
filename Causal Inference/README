@@ -1,5 +1,22 @@
-CS130 Causal Inference
+# CS130 Causal Inference
 
-Q1: Fisher Exact Test (permutation-based theory of inference)
-Q2: Genetic Matching
-Q3: Synthetic Controls
+This folder contains the source and rendered output for a three-part causal
+inference assignment, plus the figures and data used by the analysis.
+
+## Questions covered
+
+1. **Fisher exact test** — permutation-based inference for a treatment effect.
+2. **Genetic matching** — matching treated and control observations before
+   comparing outcomes.
+3. **Synthetic controls** — constructing a comparison trajectory for a treated
+   unit.
+
+## Files
+
+- `CS130 Causal Inference.Rmd` — executable source notebook.
+- `CS130 Causal Inference.nb.html` — rendered notebook output.
+- `greenbuildings.csv` — local data file used by the folder's analysis.
+- `*.jpg` — exported plots and sensitivity summaries.
+
+The first question's notebook code also downloads teaching data from the URL
+embedded in the source, so a rerun depends on network access to that resource.
