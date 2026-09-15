@@ -28,4 +28,6 @@ included in the current repository tree. A complete rerun therefore requires
 that input file; the rendered HTML is the available record of its output.
 
 The causal-inference notebook downloads its teaching data from the URL in the
-source notebook, so reproducing it also depends on that external resource.
+source notebook. Its matching section also contains an absolute local path to
+`greenbuildings.csv`, so that path must be adjusted before rerunning from a
+different checkout.
